@@ -1,0 +1,29 @@
+{
+  "name": "ezsyslog",
+  "version": "0.1.0",
+  "description": "",
+  "scripts": {
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^18.0.6",
+    "add": "^2.0.6",
+    "typescript": "^4.7.4",
+    "vite": "^3.0.0",
+    "vite-plugin-compression": "^0.5.1",
+    "vite-plugin-solid": "^2.3.0"
+  },
+  "dependencies": {
+    "@js-joda/core": "^5.2.0",
+    "@types/luxon": "^3.0.0",
+    "firacode": "^6.2.0",
+    "luxon": "^3.0.1",
+    "normalize.css": "^8.0.1",
+    "solid-js": "^1.4.7",
+    "solid-styled-components": "^0.28.4"
+  }
+}

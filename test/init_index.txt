@@ -1,0 +1,1 @@
+GRAPH.QUERY "syslog" "CREATE INDEX ON :Message(server_timestamp)"
