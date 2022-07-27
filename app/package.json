@@ -1,30 +1,41 @@
 {
-  "name": "ezsyslog",
-  "version": "0.1.0",
-  "description": "",
-  "scripts": {
-    "start": "vite",
-    "dev": "vite",
-    "build": "vite build",
-    "serve": "vite preview"
-  },
-  "license": "MIT",
-  "devDependencies": {
-    "@types/node": "^18.0.6",
-    "add": "^2.0.6",
-    "typescript": "^4.7.4",
-    "vite": "^3.0.0",
-    "vite-plugin-compression": "^0.5.1",
-    "vite-plugin-solid": "^2.3.0"
-  },
-  "dependencies": {
-    "@js-joda/core": "^5.2.0",
-    "@solidjs/router": "^0.4.2",
-    "@types/luxon": "^3.0.0",
-    "firacode": "^6.2.0",
-    "luxon": "^3.0.1",
-    "normalize.css": "^8.0.1",
-    "solid-js": "^1.4.7",
-    "solid-styled-components": "^0.28.4"
-  }
+	"name": "app",
+	"version": "0.0.1",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"package": "svelte-kit package",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync",
+		"check": "svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-check --tsconfig ./tsconfig.json --watch",
+		"lint": "prettier --check --plugin-search-dir=. . && eslint .",
+		"format": "prettier --write --plugin-search-dir=. ."
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-auto": "next",
+		"@sveltejs/kit": "next",
+		"@types/luxon": "^3.0.0",
+		"@typescript-eslint/eslint-plugin": "^5.27.0",
+		"@typescript-eslint/parser": "^5.27.0",
+		"eslint": "^8.16.0",
+		"eslint-config-prettier": "^8.3.0",
+		"eslint-plugin-svelte3": "^4.0.0",
+		"less": "^4.1.3",
+		"postcss": "^8.4.14",
+		"prettier": "^2.6.2",
+		"prettier-plugin-svelte": "^2.7.0",
+		"svelte": "^3.44.0",
+		"svelte-check": "^2.7.1",
+		"svelte-preprocess": "^4.10.6",
+		"tslib": "^2.3.1",
+		"typescript": "^4.7.4",
+		"vite": "^3.0.0"
+	},
+	"type": "module",
+	"dependencies": {
+		"firacode": "^6.2.0",
+		"luxon": "^3.0.1",
+		"normalize.css": "^8.0.1"
+	}
 }
