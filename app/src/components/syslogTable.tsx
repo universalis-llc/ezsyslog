@@ -1,9 +1,10 @@
-import { createEffect, createMemo, For, Match, onCleanup, Resource, Show, Switch } from "solid-js";
-import { useApi, useEvents } from "./useApi";
+import { batch, createEffect, createMemo, createSignal, For, Match, onCleanup, Resource, Show, Switch } from "solid-js";
+import { getMessagesQuery, useApi, useEvents } from "./useApi";
 import { css, styled } from "solid-styled-components";
 import { useLocalStorage } from "./useLocalStore";
 import { DateTime } from "luxon";
 import { Dropdown } from "./dropdown";
+import { url } from "inspector";
 
 // TODO: Auto update should only query the latest from the last query timestamp on
 // TODO: Server Side Events to provide new messages
@@ -26,82 +27,72 @@ export type QueryResponse = [
 
 const SEVERITY_CSS = {
   'debug': css`
-    background-color: #4B2F58;
+    background-color: #A230D7 !important;
     color: white;
     &:hover {
-      background-color: #382142;
+      background-color: #8517b8 !important;
     }
   `,
   'info': css`
-  background-color: #e0e0e0;
+  background-color: #e0e0e0 !important;
     &:hover {
-      background-color: #c9c9c9;
+      background-color: #c9c9c9 !important;
     }
   `,
   'alert': css`
-    background-color: #f58220;
+    background-color: #f58220 !important;
     color: white;
     &:hover {
-      background-color: #df7111;
+      background-color: #df7111 !important;
     }
   `,
   'emerg': css`
-    background-color: black;
+    background-color: black !important;
     color: white;
   `,
   'notice': css`
-    background-color: #2a4f87;
+    background-color: #2a4f87 !important;
     color: white;
     &:hover {
-      background-color: #1e3a64;
+      background-color: #1e3a64 !important;
     }
   `,
   'warning': css`
-    background-color: #fde25d;
+    background-color: #fde25d !important;
     color: #222;
     &:hover {
-      background-color: #f0d342;
+      background-color: #f0d342 !important;
     }
   `,
   'err': css`
-    background-color: #C73E1D;
+    background-color: #C73E1D !important;
     color: white;
     &:hover {
-      background-color: #b33819;
+      background-color: #b33819 !important;
     }
   `,
   'crit': css`
-    background-color: #8a2c15;
+    background-color: #8a2c15 !important;
     color: white;
     &:hover {
-      background-color: #742511;
+      background-color: #742511 !important;
     }
   `,
 }
 
-const Table = styled('table')`
-border-spacing: 0;
-table-layout: fixed;
-width: 100%;
-tbody {
-  width: 100%;
-  display: block;
-}
-tr:nth-child(odd) {
-  background-color: #d3d3d326;
-}
-tr:first-child {
-  background-color: grey;
-}
-th, td {
-  padding: 0.2rem;
-}
-th {
-  font-weight: bold;
-  input {
-    width: 100%;
+const Table = styled('div')`
+  display: grid;
+  grid-template-columns: repeat(3, min-content) 1fr repeat(2, min-content);
+  > :nth-child(odd) > * {
+    background-color: #efefef;
   }
-}
+`;
+
+const hint = css`
+  color: #888;
+  &:hover {
+    color: #333;
+  }
 `;
 
 const Options = styled('ul')`
@@ -109,102 +100,127 @@ const Options = styled('ul')`
   padding: 0;
   margin: 0;
   text-align: left;
+  border: 1px solid #333;
   li {
-    padding: 0.2rem 0.8rem;
+    padding: 0.4rem 1.8rem;
     font-weight: normal;
     cursor: pointer;
   }
 `;
 function SeverityDropDown({ value, onChange }) {
+  const [open, setOpen] = createSignal(false);
   const severities = ['debug', 'info', 'alert', 'warning', 'err', 'crit', 'emerg'];
   const options = severities.map(s => <li class={SEVERITY_CSS[s]} style={{ "text-transform": 'uppercase' }} onMouseDown={() => onChange(s)}>{s}</li>);
   return (
-    <>
-      <input value={value()} onChange={e => onChange(e.currentTarget.value)} placeholder="Severity" />
-      <Dropdown >
+    <div style={{ position: 'relative' }}>
+      <Input value={value()} onChange={e => onChange(e.currentTarget.value)} placeholder="Severity" onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} />
+      <Dropdown open={open}>
         <Options>
           <li onMouseDown={() => onChange('')}>ALL</li>
           {options}
         </Options>
       </Dropdown>
-    </>
+    </div>
   );
 }
 
+const Row = styled('div')`
+  display: contents;
+`;
 const TimebarContainer = styled('div')`
   display: flex;
   width: 100%;
   justify-content: space-between;
 `;
+const InputField = styled('input')`
+  border: 0;
+  border-bottom: 1px solid grey;
+  background-color: transparent;
+`;
+const InputWrapper = styled('div')`
+  display: flex;
+  background-color: white;
+`;
+const InputButton = styled('button')`
+  background-color: transparent;
+  border: 0;
+  border-bottom: 1px solid grey;
+  cursor: pointer;
+`;
+function Input({ value, onChange, ...rest }) {
+  let input;
+  createEffect(() => {
+    input.value = value;
+  })
+  const clear = () => {
+    input.value = '';
+    onChange({ currentTarget: { value: '' } });
+  }
+  return (
+    <InputWrapper>
+      <InputField ref={input} onChange={onChange} {...rest} />
+      <InputButton onClick={clear}>X</InputButton>
+    </InputWrapper>
+  );
+}
 function Timebar({ startTime, onChangeStartTime, endTime, onChangeEndTime }) {
   return (
     <TimebarContainer>
-      <input type="datetime-local" value={startTime()?.toISO({ includeOffset: false }) ?? undefined} onChange={e => onChangeStartTime(DateTime.fromISO(e.currentTarget.value))} />
-      <input type="datetime-local" value={endTime()?.toISO({ includeOffset: false }) ?? undefined} onChange={e => onChangeEndTime(DateTime.fromISO(e.currentTarget.value))} />
+      <Input type="datetime-local" value={startTime()?.toISO({ includeOffset: false }) ?? undefined} onChange={e => onChangeStartTime(DateTime.fromISO(e.currentTarget.value))} />
+      <Input type="datetime-local" value={endTime()?.toISO({ includeOffset: false }) ?? undefined} onChange={e => onChangeEndTime(DateTime.fromISO(e.currentTarget.value))} />
     </TimebarContainer>
   )
+}
+
+function Header({ msg, severity, hostname, ipAddress }) {
+  return (
+    <Row>
+      <Cell>ID</Cell>
+      <Cell>Timestamp</Cell>
+      <Cell style={{ padding: 0 }}>
+        <SeverityDropDown value={severity[0]} onChange={severity[1]} />
+      </Cell>
+      <Cell style={{ padding: 0 }}>
+        <Input style={{ width: '100%' }} value={msg[0]() || ''} onChange={e => msg[1](e.currentTarget.value)} placeholder="Message Text" />
+      </Cell>
+      <Cell style={{ padding: 0 }}>
+        <Input value={hostname[0]()} onChange={e => hostname[1](e.currentTarget.value)} placeholder="Hostname" />
+      </Cell>
+      <Show when={ipAddress[0]() !== undefined}>
+        <Cell style={{ padding: 0 }}>
+          <Input value={ipAddress[0]() || ''} onChange={e => ipAddress[1](e.currentTarget.value)} placeholder="Address" />
+        </Cell>
+      </Show>
+    </Row>
+  );
 }
 
 const DateTimeTransformers = { deserialize: (v: string) => DateTime.fromMillis(parseInt(v)), serialize: (v: DateTime) => v.toMillis().toString() };
 export default function SyslogSearch() {
   // const sse = useEvents();
   // sse.onmessage = e => console.debug(e);
-  const [msg, setMsg] = useLocalStorage<string | undefined>("search-msg");
+  const [msg, setMsg] = useLocalStorage<string>("search-msg");
   const [startTime, setStartTime] = useLocalStorage("search-startTime", DateTime.now().minus({ minutes: 15 }), DateTimeTransformers);
   const [endTime, setEndTime] = useLocalStorage("search-endTime", DateTime.now(), DateTimeTransformers);
   const [severity, setSeverity] = useLocalStorage("search-severity", "");
   const [hostname, setHostname] = useLocalStorage("search-hostname", "");
-  const [ipAddress, setIpAddress] = useLocalStorage<string | undefined>("search-ipAddress");
+  const [ipAddress, setIpAddress] = useLocalStorage<string>("search-ipAddress");
   const [autoRefresh, setAutoRefresh] = useLocalStorage("search-autorefresh", true);
-  const statements = createMemo(() => {
-    const startTimeS = startTime();
-    const endTimeS = endTime();
 
-    // These are split because you cannot have a OPTIONAL MATCH after a MATCH 
-    const manditory: { [k: string]: string } = {}
-    const optional: { [k: string]: string } = {};
-    manditory['node'] = msg() ?
-      `CALL db.idx.fulltext.queryNodes('Message','${msg()}') YIELD node` :
-      `MATCH (node:Message)`;
-    if (startTimeS || endTimeS) {
-      manditory['node'] += ' WHERE';
-    }
-    if (startTimeS) {
-      manditory['node'] += ` node.server_timestamp>=${startTimeS.toMillis()}`;
-    }
-    if (startTimeS && endTimeS) {
-      manditory['node'] += ` AND`;
-    }
-    if (endTimeS) {
-      manditory['node'] += ` node.server_timestamp<=${endTimeS.toMillis()}`;
-    }
-    severity()?.length ?
-      manditory['severity'] = `MATCH (node)-->(severity:Severity) WHERE severity.name CONTAINS '${severity()}'` :
-      optional['severity'] = `OPTIONAL MATCH (node)-->(severity:Severity)`;
-    hostname()?.length ?
-      manditory['hostname'] = `MATCH (node)-->(hostname:Hostname) WHERE hostname.name CONTAINS '${hostname()}'` :
-      optional['hostname'] = `OPTIONAL MATCH (node)-->(hostname:Hostname)`;
-    if (ipAddress() !== undefined) ipAddress()?.length ?
-      manditory['address'] = `MATCH (node)-->(address:Address) WHERE address.ip CONTAINS '${ipAddress()}'` :
-      optional['address'] = `OPTIONAL MATCH (node)-->(address:Address)`;
-
-    return { ...manditory, ...optional };
-  });
-
-  const [messages, { refetch }] = useApi(() => `/search?query=
-    ${Object.values(statements()).join(' ')}
-    RETURN DISTINCT ${Object.keys(statements()).join(',')},ID(node) as id
-    ORDER BY node.server_timestamp DESC
-    LIMIT 1000
-  `);
   const lastNMinutes = (min: number) => {
-    setStartTime(DateTime.now().minus({ minute: min }));
-    setEndTime(DateTime.now());
+    batch(() => {
+      setStartTime(DateTime.now().minus({ minute: min }));
+      setEndTime(DateTime.now());
+    });
   };
+
+  const query = createMemo(() => getMessagesQuery({ startTime: startTime(), endTime: endTime(), msg: msg(), hostname: hostname(), ipAddress: ipAddress(), severity: severity() }));
+
+  const [messages] = useApi(() => `/search?query=${query()}`);
 
   let interval: string | number | NodeJS.Timeout | undefined;
   createEffect(() => {
-    if (autoRefresh()) interval = setInterval(refetch, 5000);
+    if (autoRefresh()) interval = setInterval(() => setEndTime(DateTime.now()), 5000);
     else clearInterval(interval);
   });
 
@@ -226,61 +242,64 @@ export default function SyslogSearch() {
         <label>Auto Refresh: <input type="checkbox" checked={autoRefresh()} onChange={(e) => setAutoRefresh(e.currentTarget.checked)} /></label>
       </div>
       <Table>
-        <tbody>
-          <tr>
-            <th>ID</th>
-            <th>Timestamp</th>
-            <th style={{ "min-width": '6rem' }}><SeverityDropDown value={severity} onChange={setSeverity} /></th>
-            <th><input value={msg() || ''} onChange={e => setMsg(e.currentTarget.value)} placeholder="Message Text" /></th>
-            <th><input value={hostname()} onChange={e => setHostname(e.currentTarget.value)} placeholder="Hostname" /></th>
-            <Show when={ipAddress() !== undefined}>
-              <th><input value={ipAddress() || ''} onChange={e => setIpAddress(e.currentTarget.value)} placeholder="Address" /></th>
-            </Show>
-          </tr>
-          <SyslogTableResults messages={messages} />
-        </tbody>
+        <Header msg={[msg, setMsg]} hostname={[hostname, setHostname]} ipAddress={[ipAddress, setIpAddress]} severity={[severity, setSeverity]} />
+        <SyslogTableResults messages={messages} setHostname={setHostname} setIpAddress={setIpAddress} />
       </Table>
     </div>
   );
 }
 
-const MessageCell = styled('td')`
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 0;
+const Cell = styled('div')`
+  height: 100%;
+  width: 100%;
+  padding: 0.1rem 0.5rem;
+  display: flex;
+  align-items: center;
 `;
-export function SyslogTableResults({ messages }: { messages: Resource<Object[]> }) {
+const MessageCell = styled(Cell)(({ open }) => `
+  overflow: hidden;
+  display: block;
+  text-overflow: "... \u25BC";
+  white-space: ${open ? 'inherit' : 'nowrap'};
+`);
+export function SyslogTableResults({ messages, setHostname, setIpAddress }: { messages: Resource<Object[]> }) {
   return (
     <Switch fallback={<div>Unexpected Error</div>}>
 
-      <Match when={messages.loading}>
+      {/* <Match when={messages.loading}>
         Loading...
-      </Match>
+      </Match> */}
 
       <Match when={messages.error}>
         {messages.error}
       </Match>
 
       <Match when={messages()}>
-        <For each={messages()} fallback={<td colSpan={5}>Empty...</td>}>
+        <For each={messages().reverse()} fallback={<div>Empty...</div>}>
           {({ node, severity, hostname, address }) => {
             const timestamp = DateTime.fromMillis(node?.properties.server_timestamp);
             const severityCss = SEVERITY_CSS[severity?.properties.name];
+            const [open, setOpen] = createSignal(false);
+            const expand = () => {
+              if (globalThis.getSelection()?.type !== 'Range')
+                setOpen(!open());
+            };
             return (
-              <tr>
-                <td>{node?.id}</td>
-                <td key={node?.id} title={node?.properties.server_timestamp}>
-                  <div style={{ "font-size": '0.8rem' }}>{timestamp.toMillis()}</div>
-                  <div style={{ "font-size": "0.8rem" }}>{timestamp.toRelative()}</div>
-                </td>
-                <td style={{ "text-align": 'center'}} class={severityCss} key={severity?.id}>{severity?.properties.name}</td>
-                <MessageCell key={node?.id}>{node?.properties.msg}</MessageCell>
-                <td key={hostname?.id}><a href="#">{hostname?.properties.name}</a></td>
+              <Row>
+                <Cell class={hint}>{node?.id}</Cell>
+                <Cell key={node?.id} title={timestamp.toFormat('FF')}>
+                  <div>
+                    <div style={{ "font-size": "0.8rem" }}>{timestamp.toRelative()}</div>
+                    <div style={{ "font-size": '0.8rem' }} class={hint}>{timestamp.toMillis()}</div>
+                  </div>
+                </Cell>
+                <Cell style={{ "justify-content": 'center', "text-transform": 'uppercase' }} class={severityCss} key={severity?.id}>{severity?.properties.name}</Cell>
+                <MessageCell key={node?.id} open={open()} onClick={expand}>{node?.properties.msg}</MessageCell>
+                <Cell key={hostname?.id}><a onClick={() => setHostname(hostname?.properties.name)}>{hostname?.properties.name}</a></Cell>
                 <Show when={address}>
-                  <td key={address?.id}>{address?.properties.ip}</td>
+                  <Cell key={address?.id}><a onClick={() => setIpAddress(address?.properties.ip)}>{address?.properties.ip}</a></Cell>
                 </Show>
-              </tr>
+              </Row>
             )
           }}
         </For>

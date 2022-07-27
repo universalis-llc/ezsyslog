@@ -1,25 +1,18 @@
 import { createSignal } from "solid-js";
 import { styled } from "solid-styled-components"
 
-const Options = styled('div')`
+const Options = styled('div')(({open}) => `
 transform: translateY(-1px);
 position: absolute;
+top: 100%;
 background-color: white;
-display: none;
-`;
-const Container = styled('div')`
-display: contents;
-input:focus + div {
-  display: block;
-}
-`;
+display: ${open ? 'block' : 'none'};
+`);
 
-export function Dropdown({ children, ...rest }) {
+export function Dropdown({ open, children, ...rest }) {
   return (
-    <Container>
-      <Options>
-        {children}
-      </Options>
-    </Container>
+    <Options open={open()}>
+      {children}
+    </Options>
   )
 }

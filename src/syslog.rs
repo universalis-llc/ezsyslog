@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use redis::aio::MultiplexedConnection;
 use redis_graph::{AsyncGraphCommands};
 use syslog_loose::{parse_message, Message};
-use tokio::net::UdpSocket;
+use tokio::net::{UdpSocket};
 
 const PORT: u16 = 9594;
 const HOST: &'static str = "::";
@@ -107,10 +107,20 @@ pub async fn listen() -> Result<()> {
     println!("Syslog started!");
     let mut con = database::connect().await?;
 
-    let sock = UdpSocket::bind(format!("{}:{}", HOST, PORT)).await?;
+    let udp = UdpSocket::bind(format!("{}:{}", HOST, PORT)).await?;
+    
+    // let tcp = TcpSocket::new_v4()?;
+    // let tcp6 = TcpSocket::new_v6()?;
+    // tcp.set_reuseaddr(true)?;
+    // tcp.bind(format!("{}:{}", HOST, PORT).parse().unwrap())?;
+    // tcp6.set_reuseaddr(true)?;
+    // tcp6.bind(format!("{}:{}", HOST, PORT).parse().unwrap())?;
+    // let tcp_listener = tcp.listen(1024)?;
+    // let tcp6_listener = tcp6.listen(1024)?;
+
     let mut buf = [0; 1024];
     loop {
-        let (len, addr) = sock.recv_from(&mut buf).await?;
+        let (len, addr) = udp.recv_from(&mut buf).await?;
         let msg = match parse_buffer(len, &buf).await {
             Err(e) => {
                 println!("{}", e);

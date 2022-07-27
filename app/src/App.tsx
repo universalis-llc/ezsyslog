@@ -1,5 +1,5 @@
 import { Component } from 'solid-js';
-import SyslogTable from './components/syslogTable';
+import { Router } from "@solidjs/router";
 import { createGlobalStyles } from "solid-styled-components";
 import Dashboard from './pages/dashboard';
 
@@ -22,6 +22,10 @@ const GlobalStyles = () => {
     * {
       box-sizing: border-box;
     }
+
+    a {
+      cursor: pointer;
+    }
   `;
   return <Styles />;
 };
@@ -29,8 +33,10 @@ const GlobalStyles = () => {
 const App: Component = () => {
   return (
     <div>
-      <GlobalStyles/>
-      <Dashboard/>
+      <Router>
+        <GlobalStyles />
+        <Dashboard />
+      </Router>
     </div>
   );
 };
