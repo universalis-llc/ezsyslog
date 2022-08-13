@@ -1,0 +1,23 @@
+version: '3.4'
+services:
+  database:
+    build:
+      context: .
+      target: db
+    volumes:
+      - shared:/shared
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+    entrypoint: ["keydb-server", "/usr/local/etc/redis/redis.conf"]
+  app:
+    build:
+      context: .
+      target: app
+    depends_on:
+      - database
+    environment:
+      EZSYSLOG_DB_SOCKET: /shared/redis.sock
+    volumes:
+      - shared:/shared
+
+volumes:
+  shared:

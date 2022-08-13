@@ -1,22 +1,27 @@
-use std::{collections::HashMap, time::{Instant, Duration}};
+use std::{
+    collections::HashMap,
+    env,
+    time::{Duration, Instant},
+};
 
 use crate::database;
-use futures_util::StreamExt;
+use futures_util::{StreamExt, FutureExt};
 use poem::{
     endpoint::EmbeddedFilesEndpoint,
-    handler,
+    get, handler,
     http::{Method, StatusCode},
     listener::TcpListener,
     middleware::{AddData, Cors},
-    web::{Data, Json, sse::{SSE, Event}},
-    EndpointExt, Request, Result, Route, Server, get,
+    web::{
+        sse::{Event, SSE},
+        Data, Json,
+    },
+    EndpointExt, Request, Result, Route, Server,
 };
 use redis::aio::MultiplexedConnection;
 use redis_graph::{AsyncGraphCommands, GraphValue};
 use serde::Deserialize;
-
-const PORT: u16 = 8000;
-const HOST: &'static str = "::";
+use tokio::sync::watch::Receiver;
 
 #[derive(Deserialize)]
 struct Params {
@@ -123,7 +128,7 @@ mod serde_redis_graph {
     pub enum SerializeGraphValue {
         Node(NodeValue),
         Scalar(Value),
-        Relation(RelationValue)
+        Relation(RelationValue),
     }
 
     impl Serialize for SerializeGraphValue {
@@ -165,9 +170,12 @@ mod serde_redis_graph {
                     state.serialize_field("rel_type", &relation.rel_type)?;
                     state.serialize_field("src_node", &relation.src_node)?;
                     state.serialize_field("dest_node", &relation.dest_node)?;
-                    state.serialize_field("properties", &SerializeProperties(&relation.properties))?;
+                    state.serialize_field(
+                        "properties",
+                        &SerializeProperties(&relation.properties),
+                    )?;
                     state.end()
-                },
+                }
             }
         }
     }
@@ -183,7 +191,6 @@ fn events() -> SSE {
     .keep_alive(Duration::from_secs(15))
 }
 
-
 fn extract_data(data: GraphValue) -> serde_redis_graph::SerializeGraphValue {
     match data {
         GraphValue::Node(node_value) => {
@@ -191,14 +198,18 @@ fn extract_data(data: GraphValue) -> serde_redis_graph::SerializeGraphValue {
             // unimplemented!()
         }
         GraphValue::Scalar(value) => serde_redis_graph::SerializeGraphValue::Scalar(value),
-        GraphValue::Relation(relation) => serde_redis_graph::SerializeGraphValue::Relation(relation),
+        GraphValue::Relation(relation) => {
+            serde_redis_graph::SerializeGraphValue::Relation(relation)
+        }
     }
 }
 
-pub async fn listen() -> anyhow::Result<()> {
+pub async fn listen(mut signal: Receiver<()>) -> anyhow::Result<()> {
     println!("HTTP started!");
     let con = database::connect().await?;
-    let addr = format!("{HOST}:{PORT}");
+    let host: String = env::var("EZSYSLOG_HTTP_HOST").unwrap_or("::".to_string());
+    let port: String = env::var("EZSYSLOG_HTTP_PORT").unwrap_or("8000".to_string());
+    let addr = format!("{host}:{port}");
     let static_files_endpoint = EmbeddedFilesEndpoint::<Files>::new();
     let cors = Cors::new()
         .allow_method(Method::GET)
@@ -212,7 +223,7 @@ pub async fn listen() -> anyhow::Result<()> {
         .with(cors)
         .with(AddData::new(con));
 
-    Server::new(TcpListener::bind(addr)).run(app).await?;
+    Server::new(TcpListener::bind(addr)).run_with_graceful_shutdown(app, signal.changed().map(|_| ()), None).await?;
 
     Ok(())
 }

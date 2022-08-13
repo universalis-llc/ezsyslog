@@ -1,14 +1,12 @@
-use std::{borrow::Cow, net::SocketAddr, time::SystemTime};
+use std::{borrow::Cow, env, net::SocketAddr, time::SystemTime};
+use tokio::sync::watch::Receiver;
 
 use crate::database;
 use anyhow::{anyhow, Result};
 use redis::aio::MultiplexedConnection;
-use redis_graph::{AsyncGraphCommands};
+use redis_graph::AsyncGraphCommands;
 use syslog_loose::{parse_message, Message};
-use tokio::net::{UdpSocket};
-
-const PORT: u16 = 9594;
-const HOST: &'static str = "::";
+use tokio::net::UdpSocket;
 
 async fn parse_buffer(len: usize, buffer: &[u8]) -> Result<Message<&str>> {
     let msg_buffer = std::str::from_utf8(&buffer[0..len]);
@@ -60,7 +58,7 @@ async fn store_msg(
             MERGE (fac:Facility {{name: '{}'}})
             MERGE (msg)-[:facility]->(fac)
         ",
-        facility.as_str()
+            facility.as_str()
         ));
     }
     if let Some(severity) = msg.severity {
@@ -69,7 +67,7 @@ async fn store_msg(
             MERGE (sev:Severity {{name: '{}'}})
             MERGE (msg)-[:severity]->(sev)
         ",
-        severity.as_str()
+            severity.as_str()
         ));
     }
     if let Some(appname) = msg.appname {
@@ -103,12 +101,14 @@ async fn store_msg(
     Ok(())
 }
 
-pub async fn listen() -> Result<()> {
+pub async fn listen(mut signal: Receiver<()>) -> Result<()> {
     println!("Syslog started!");
     let mut con = database::connect().await?;
 
-    let udp = UdpSocket::bind(format!("{}:{}", HOST, PORT)).await?;
-    
+    let host: String = env::var("EZSYSLOG_SYSLOG_HOST").unwrap_or("::".to_string());
+    let port: String = env::var("EZSYSLOG_SYSLOG_PORT").unwrap_or("514".to_string());
+    let udp = UdpSocket::bind(format!("{}:{}", host, port)).await?;
+
     // let tcp = TcpSocket::new_v4()?;
     // let tcp6 = TcpSocket::new_v6()?;
     // tcp.set_reuseaddr(true)?;
@@ -120,18 +120,27 @@ pub async fn listen() -> Result<()> {
 
     let mut buf = [0; 1024];
     loop {
-        let (len, addr) = udp.recv_from(&mut buf).await?;
-        let msg = match parse_buffer(len, &buf).await {
-            Err(e) => {
-                println!("{}", e);
-                continue;
-            }
-            Ok(msg) => msg,
-        };
+        tokio::select! {
+            _ = signal.changed() => {
+                break;
+            },
+            res = udp.recv_from(&mut buf) => {
+                let (len, addr) = res?;
+                let msg = match parse_buffer(len, &buf).await {
+                    Err(e) => {
+                        println!("{}", e);
+                        continue;
+                    }
+                    Ok(msg) => msg,
+                };
 
-        dbg!(&msg);
-        store_msg(&mut con, msg, &addr).await?;
-    }
+                dbg!(&msg);
+                store_msg(&mut con, msg, &addr).await?;
+            }
+        };
+    };
+
+    Ok(())
 }
 
 // https://fullstackmilk.dev/efficiently_escaping_strings_using_cow_in_rust/

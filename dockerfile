@@ -5,7 +5,7 @@ FROM redislabs/redistimeseries:latest as redistimeseries
 FROM redislabs/rejson:latest as rejson
 FROM redislabs/rebloom:latest as rebloom
 #FROM redislabs/redisgears:latest as redisgears
-FROM eqalpha/keydb:latest
+FROM eqalpha/keydb:latest as db
 
 ENV LD_LIBRARY_PATH /usr/lib/redis/modules
 ENV REDISGRAPH_DEPS libgomp1
@@ -33,7 +33,22 @@ CMD ["--loadmodule", "/usr/lib/redis/modules/redisai.so", \
     "--loadmodule", "/usr/lib/redis/modules/redisgraph.so", \
     "--loadmodule", "/usr/lib/redis/modules/redistimeseries.so", \
     "--loadmodule", "/usr/lib/redis/modules/rejson.so", \
-    "--loadmodule", "/usr/lib/redis/modules/redisbloom.so"] #, \
+    "--loadmodule", "/usr/lib/redis/modules/redisbloom.so"]
 #    "--loadmodule", "/var/opt/redislabs/lib/modules/redisgears.so", \
 #    "PythonHomeDir", "/opt/redislabs/lib/modules/python3"]
 
+FROM rust:1.63-alpine as builder
+
+RUN apk add --no-cache musl-dev
+
+WORKDIR /usr/src/myapp
+COPY . .
+
+RUN cargo install --path .
+
+FROM rust:1.63-alpine as app
+
+WORKDIR /usr/src/myapp
+COPY --from=builder /usr/local/cargo/bin/ezsyslog /usr/local/bin/ezsyslog
+
+CMD ["ezsyslog"]
