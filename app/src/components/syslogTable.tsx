@@ -4,26 +4,9 @@ import { css, styled } from "solid-styled-components";
 import { useLocalStorage } from "./useLocalStore";
 import { DateTime } from "luxon";
 import { Dropdown } from "./dropdown";
-import { url } from "inspector";
 
 // TODO: Auto update should only query the latest from the last query timestamp on
 // TODO: Server Side Events to provide new messages
-
-export type QueryResponse = [
-  {
-    msg: {
-      properties: {
-        server_timestamp: Number,
-        msg: String
-      }
-    },
-    severity: {
-      properties: {
-        name: String
-      }
-    }
-  }
-];
 
 const SEVERITY_CSS = {
   'debug': css`
@@ -289,7 +272,7 @@ export function SyslogTableResults({ messages, setHostname, setIpAddress }: { me
                 <Cell class={hint}>{node?.id}</Cell>
                 <Cell key={node?.id} title={timestamp.toFormat('FF')}>
                   <div>
-                    <div style={{ "font-size": "0.8rem" }}>{timestamp.toRelative()}</div>
+                    <div style={{ "font-size": "0.8rem", "white-space": 'nowrap' }}>{timestamp.toRelative()}</div>
                     <div style={{ "font-size": '0.8rem' }} class={hint}>{timestamp.toMillis()}</div>
                   </div>
                 </Cell>
