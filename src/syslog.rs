@@ -1,7 +1,7 @@
-use std::{borrow::Cow, env, net::SocketAddr, time::SystemTime};
-use tokio::sync::watch::Receiver;
+use std::{env, net::SocketAddr, time::SystemTime};
+use tokio::sync::{broadcast::Sender, watch::Receiver};
 
-use crate::database;
+use crate::{database, utils::escape};
 use anyhow::{anyhow, Result};
 use redis::aio::MultiplexedConnection;
 use redis_graph::AsyncGraphCommands;
@@ -24,7 +24,7 @@ async fn store_msg(
     con: &mut MultiplexedConnection,
     msg: Message<&str>,
     addr: &SocketAddr,
-) -> Result<()> {
+) -> Result<usize> {
     let timestamp = msg
         .timestamp
         .and_then(|t| Some(t.timestamp().to_string()))
@@ -96,13 +96,23 @@ async fn store_msg(
         ));
     });
 
+    query.push_str("\nRETURN id(msg) as id");
+
+    #[cfg(debug_assertions)]
     dbg!(&query);
-    con.graph_query(database::GRAPH_NAME, query).await?;
-    Ok(())
+    
+    let result = con.graph_query(database::GRAPH_NAME, query).await?;
+    let id: usize = result.data[0]
+        .get_scalar("id")
+        .expect("Inserted message node returned no node id");
+    Ok(id)
 }
 
-pub async fn listen(mut signal: Receiver<()>) -> Result<()> {
-    println!("Syslog started!");
+pub async fn listen(
+    mut shutdown_signal: Receiver<()>,
+    sender: Sender<crate::Signal>,
+) -> Result<()> {
+    println!("Syslog listener started!");
     let mut con = database::connect().await?;
 
     let host: String = env::var("EZSYSLOG_SYSLOG_HOST").unwrap_or("::".to_string());
@@ -121,63 +131,31 @@ pub async fn listen(mut signal: Receiver<()>) -> Result<()> {
     let mut buf = [0; 1024];
     loop {
         tokio::select! {
-            _ = signal.changed() => {
+            _ = shutdown_signal.changed() => {
                 break;
             },
             res = udp.recv_from(&mut buf) => {
                 let (len, addr) = res?;
                 let msg = match parse_buffer(len, &buf).await {
                     Err(e) => {
-                        println!("{}", e);
+                        println!("Unable to parse syslog message: {}", e);
                         continue;
                     }
                     Ok(msg) => msg,
                 };
 
+                #[cfg(debug_assertions)]
                 dbg!(&msg);
-                store_msg(&mut con, msg, &addr).await?;
+
+                let message_node_id = store_msg(&mut con, msg, &addr).await?;
+
+                println!("Sending new node id to broadcast");
+                sender.send(crate::Signal::NewMessage(message_node_id))?;
             }
         };
-    };
-
-    Ok(())
-}
-
-// https://fullstackmilk.dev/efficiently_escaping_strings_using_cow_in_rust/
-pub fn escape(input: &str) -> Cow<str> {
-    // Iterate through the characters, checking if each one needs escaping
-    for (i, ch) in input.chars().enumerate() {
-        if ch == '\'' {
-            // At least one char needs escaping, so we need to return a brand
-            // new `String` rather than the original
-
-            let mut escaped_string = String::with_capacity(input.len());
-            // Calling `String::with_capacity()` instead of `String::new()` is
-            // a slight optimisation to reduce the number of allocations we
-            // need to do.
-            //
-            // We know that the escaped string is always at least as long as
-            // the unescaped version so we can preallocate at least that much
-            // space.
-
-            // We already checked the characters up to index `i` don't need
-            // escaping so we can just copy them straight in
-            escaped_string.push_str(&input[..i]);
-
-            // Escape the remaining characters if they need it and add them to
-            // our escaped string
-            for ch in input[i..].chars() {
-                match ch == '\'' {
-                    true => escaped_string.push_str("\\\'"),
-                    false => escaped_string.push(ch),
-                };
-            }
-
-            return Cow::Owned(escaped_string);
-        }
     }
 
-    // We've iterated through all of `input` and didn't find any special
-    // characters, so it's safe to just return the original string
-    Cow::Borrowed(input)
+    println!("Syslog listener stopped.");
+
+    Ok(())
 }

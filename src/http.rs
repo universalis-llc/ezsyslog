@@ -1,11 +1,7 @@
-use std::{
-    collections::HashMap,
-    env,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, env, time::Duration};
 
 use crate::database;
-use futures_util::{StreamExt, FutureExt};
+use futures_util::FutureExt;
 use poem::{
     endpoint::EmbeddedFilesEndpoint,
     get, handler,
@@ -21,7 +17,9 @@ use poem::{
 use redis::aio::MultiplexedConnection;
 use redis_graph::{AsyncGraphCommands, GraphValue};
 use serde::Deserialize;
-use tokio::sync::watch::Receiver;
+use tokio::sync::{broadcast::Sender, watch};
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::StreamExt;
 
 #[derive(Deserialize)]
 struct Params {
@@ -45,6 +43,7 @@ async fn search(
     let results = con
         .graph_ro_query(database::GRAPH_NAME, &query_phrase)
         .await;
+    #[cfg(debug_assertions)]
     dbg!(&results);
     match results {
         Err(e) => {
@@ -182,13 +181,29 @@ mod serde_redis_graph {
 }
 
 #[handler]
-fn events() -> SSE {
-    let now = Instant::now();
-    SSE::new(
-        tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(Duration::from_secs(1)))
-            .map(move |_| Event::message(now.elapsed().as_secs().to_string())),
-    )
-    .keep_alive(Duration::from_secs(15))
+fn events(mut sender: Data<&Sender<crate::Signal>>, _req: &Request) -> SSE {
+    println!("New server event stream started");
+    let stream = BroadcastStream::new(sender.subscribe()).filter_map(move |m| {
+        let signal = match m {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("{:?}", e);
+                return None;
+            }
+        };
+
+        println!("Sending new message");
+
+        match signal {
+            crate::Signal::NewMessage(m) => {
+                Some(Event::message(m.to_string()).event_type("newMessage"))
+            }
+            crate::Signal::Stop => todo!(),
+        }
+    });
+    // let stream = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(Duration::from_secs(1)))
+    //     .map(move |_| Event::message(1.to_string()));
+    SSE::new(stream).keep_alive(Duration::from_secs(15))
 }
 
 fn extract_data(data: GraphValue) -> serde_redis_graph::SerializeGraphValue {
@@ -204,8 +219,11 @@ fn extract_data(data: GraphValue) -> serde_redis_graph::SerializeGraphValue {
     }
 }
 
-pub async fn listen(mut signal: Receiver<()>) -> anyhow::Result<()> {
-    println!("HTTP started!");
+pub async fn listen(
+    mut shutdown: watch::Receiver<()>,
+    event_stream: Sender<crate::Signal>,
+) -> anyhow::Result<()> {
+    println!("HTTP listener started!");
     let con = database::connect().await?;
     let host: String = env::var("EZSYSLOG_HTTP_HOST").unwrap_or("::".to_string());
     let port: String = env::var("EZSYSLOG_HTTP_PORT").unwrap_or("8000".to_string());
@@ -221,9 +239,21 @@ pub async fn listen(mut signal: Receiver<()>) -> anyhow::Result<()> {
         .at("/search", get(search))
         .at("/events", get(events))
         .with(cors)
-        .with(AddData::new(con));
+        .with(AddData::new(con))
+        .with(AddData::new(event_stream));
 
-    Server::new(TcpListener::bind(addr)).run_with_graceful_shutdown(app, signal.changed().map(|_| ()), None).await?;
+    Server::new(TcpListener::bind(addr))
+        .run_with_graceful_shutdown(
+            app,
+            shutdown.changed().map(|_| {
+                println!("HTTP server shutting down...");
+                ()
+            }),
+            None,
+        )
+        .await?;
+
+    println!("HTTP listener stopped.");
 
     Ok(())
 }
